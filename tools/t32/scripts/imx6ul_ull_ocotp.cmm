@@ -1,0 +1,120 @@
+; --------------------------------------------------------------------------------
+; @Title: Onchip-OTP programming example for i.MX6 SoCs
+; @Description:
+;   This script shows reading/programming of the OTP Fuses on i.MX SoCs.
+;   Prerequisistes:
+;    * Debug session is up and CPU is stopped
+;    * Timing parameters are adjusted
+;   See also:
+;       PERipheral Description file suitable for the SoC
+;
+; @Author: AME
+; @Board: -
+; @Chip: IMX6*
+; @Keywords: NXP Freescale OTP Fuse
+; @Props: NoErrors
+; @Copyright: (C) 1989-2022 Lauterbach GmbH, licensed for use with TRACE32(R) only
+; --------------------------------------------------------------------------------
+; $Id: imx6_ocotp.cmm 18877 2022-02-02 07:04:07Z bschroefel $
+
+LOCAL &ocotpBase
+&ocotpBase=0x21BC000
+
+; first configure the timing parameters
+; the following values are valid after Reset
+Data.Set AD:&ocotpBase+0x10 %Long (0x5<<22.)|(6<<16.)|(0x1<<12.)|(0x299<<0.)
+
+; example 1: force a reload of the memory mapped registers
+GOSUB OCOTP_RELOAD_SHADOWS
+PRINT "Memory mapped OCOTP registers are updated"
+
+; example 2: read fuses indirectly using the READ_FUSE_DATA register
+PRIVATE &value
+GOSUB OCOTP_READ_FUSE "0x0"
+RETURNVALUES &value
+PRINT "Value of LOCK is 0x"+FORMAT.HEX(8.,&value)
+GOSUB OCOTP_READ_FUSE "0x1"
+RETURNVALUES &value
+PRINT "Value of CFG0 is 0x"+FORMAT.HEX(8.,&value)
+GOSUB OCOTP_READ_FUSE "0x2"
+RETURNVALUES &value
+PRINT "Value of CFG1 is 0x"+FORMAT.HEX(8.,&value)
+GOSUB OCOTP_READ_FUSE "0x3"
+RETURNVALUES &value
+PRINT "Value of CFG2 is 0x"+FORMAT.HEX(8.,&value)
+
+; example 3: write fuse, ATTENTION, this section is intentionally commented as fuses are one time programmable only
+; we use GP2 for the demonstration, write 0x2 for demonstration purposes
+;GOSUB OCOTP_WRITE_FUSE "0x27" "0x2"
+;GOSUB OCOTP_RELOAD_SHADOWS
+;GOSUB OCOTP_READ_FUSE "0x27"
+;RETURNVALUES &value
+;PRINT "Value of GP2 is 0x"+FORMAT.HEX(8.,&value)
+
+ENDDO
+
+; --------------------------------------------------------------------------------
+; Subroutines
+
+OCOTP_RELOAD_SHADOWS: ;()
+(
+  GOSUB CheckBusyAndError
+  Data.Set AD:&ocotpBase+0x0 %Long Data.Long(AD:&ocotpBase+0x0)|0x400
+  GOSUB CheckBusyAndError
+  RETURN
+)
+
+OCOTP_READ_FUSE: ;(addr)
+(
+  PRIVATE &retVal
+  PARAMETERS &addr
+  IF (&addr&~0x3f)!=0
+  (
+    PRINT "Address out of range!"
+    PLIST
+    STOP
+  )
+  GOSUB CheckBusyAndError
+  Data.Set AD:&ocotpBase+0x0 %Long (Data.Long(AD:&ocotpBase+0x0)&~0x3f)|&addr
+  Data.Set AD:&ocotpBase+0x30 %Long 0x1
+  GOSUB CheckBusyAndError
+  &retVal=Data.Long(AD:&ocotpBase+0x40)
+  RETURN "&retVal"
+)
+
+OCOTP_WRITE_FUSE: ;(addr, value)
+(
+  PRIVATE &retVal
+  PARAMETERS &addr &value
+  IF (&addr&~0x3f)!=0
+  (
+    PRINT "Address out of range!"
+    PLIST
+    STOP
+  )
+  GOSUB CheckBusyAndError
+  ; set addr
+  Data.Set AD:&ocotpBase+0x0 %Long (Data.Long(AD:&ocotpBase+0x0)&~0x3f)|&addr
+  ; set write unlock
+  Data.Set AD:&ocotpBase+0x0 %Long (Data.Long(AD:&ocotpBase+0x0)&~0xffff0000)|0x3e770000
+  ; the actual write
+  Data.Set AD:&ocotpBase+0x20 %Long &value
+  GOSUB CheckBusyAndError
+  RETURN "&retVal"
+)
+
+; --------------------------------------------------------------------------------
+; helper routines
+CheckBusyAndError: ;()
+(
+  PRIVATE &val
+  ; wait till BUSY bit is zero
+  WAIT (Data.Long(AD:&ocotpBase+0x0)&0x100)==0x0
+  IF (Data.Long(AD:&ocotpBase+0x0)&0x200)!=0x0
+  (
+    ; error bit set, stop the script
+    PLIST
+    STOP
+  )
+  RETURN
+)

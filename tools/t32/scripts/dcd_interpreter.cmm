@@ -1,0 +1,224 @@
+; --------------------------------------------------------------------------------
+; @Title: DCD File interpreter for NXP/Freescale SoCs
+; @Description:
+;   This script parses and interpretes .cfg files as used by uboot to create the
+;   imximage. By running the script the debugger does all the accesses as
+;   specified in the cfg file. Thus this script can e.g. be used to initialize the
+;   device with an empty flash/sd-card.
+;   Notes:
+;     * not all statements especially #include are not handled in this script
+;       if includes are used it's recommended to run the preprocessor CPP before
+;       interpreting the cfg.
+;   Usage:
+;       DO dcd_interpreter "<file.cfg>"
+;   See also:
+;       http://git.denx.de/?p=u-boot.git;a=blob;f=doc/README.imximage
+;
+; @Author: AME
+; @Board: -
+; @Chip: IMX2* IMX3* IMX5* IMX6* IMX7*
+; @Keywords: imximage NXP Freescale dcd
+; @Props: NoErrors
+; @Copyright: (C) 1989-2022 Lauterbach GmbH, licensed for use with TRACE32(R) only
+; --------------------------------------------------------------------------------
+; $Id: dcd_interpreter.cmm 18878 2022-02-02 07:15:39Z bschroefel $
+
+PRIVATE &params &dcdFile &result
+PARAMETERS &params
+
+; simple parameter handling for now
+&dcdFile="&params"
+&dcdFile=STRing.Replace("&dcdFile","""","",0.)
+IF !OS.FILE("&dcdFile")
+(
+  PRINT %ERROR "Wrong Usage!"
+  ENDDO FALSE()
+)
+
+OPEN #3 &dcdFile /READ
+RePeaT
+(
+  PRIVATE &line
+  READ #3 %LINE &line
+  &line=STRing.LoWeR("&line")
+  &line=STRing.TRIM("&line")
+
+  &result=TRUE()
+  IF STRING.SCAN("&line","data ",0.)==0.
+  (
+    GOSUB HandleData "&line"
+    RETURNVALUES &result
+  )
+  ELSE IF STRING.SCAN("&line","clr_bit ",0.)==0.
+  (
+    GOSUB HandleClrBit "&line"
+    RETURNVALUES &result
+  )
+  ELSE IF STRING.SCAN("&line","check_bits_set ",0.)==0.
+  (
+    GOSUB HandleCheckBitsSet "&line"
+    RETURNVALUES &result
+  )
+  ELSE IF STRING.SCAN("&line","check_bits_clr ",0.)==0.
+  (
+    GOSUB HandleCheckBitsClr "&line"
+    RETURNVALUES &result
+  )
+)
+WHILE !FILE.EOF(3)&&(&result)
+CLOSE #3
+
+ENDDO
+
+; --------------------------------------------------------------------------------
+
+ConvertWidth: ;(strWidth)
+(
+  PARAMETERS &strWidth
+  ON ERROR GOTO ConvertWidthFail
+
+  IF "&strWidth"=="1"
+    RETURN "TRUE()" "%Byte" "Data.Byte"
+  ELSE IF "&strWidth"=="2"
+    RETURN "TRUE()" "%Word" "Data.Word"
+  ELSE IF "&strWidth"=="4"
+    RETURN "TRUE()" "%Long" "Data.Long"
+  ELSE IF "&strWidth"=="8"
+    RETURN "TRUE()" "%Quad" "Data.Quad"
+
+ConvertWidthFail:
+  RETURN "FALSE()" "" ""
+)
+
+ConvertMask: ;(strMask)
+(
+  PARAMETERS &strMask
+  ON ERROR GOTO ConvertMaskFail
+
+  IF STRing.LENgth("&strMask")==0.
+    RETURN "FALSE()" ""
+  ELSE IF STRing.LENgth("&strMask")==1.
+  (
+    PRIVATE &tmp
+    &tmp="0x&strMask"
+    ; this line will produce an error in case 0x&strMask is not HEX
+    &tmp=&tmp+0x0
+    RETURN "TRUE()" "&tmp"
+  )
+  ELSE IF STRing.SCAN("&strMask","0x",0.)==0.
+    RETURN "TRUE()" "&strMask"
+
+
+ConvertMaskFail:
+  RETURN "FALSE()" ""
+)
+
+HandleData: ;(line)
+(
+  PRIVATE &line &width &addr &value &result &dummy
+  PARAMETERS &line
+  ; handle a line with format
+  ;  DATA <width> <addr> <value>
+  &width=STRing.SPLIT("&line"," ",1.)
+  &addr=STRing.SPLIT("&line"," ",2.)
+  &value=STRing.SPLIT("&line"," ",3.)
+
+  GOSUB ConvertWidth "&width"
+  RETURNVALUES &result &width &dummy
+
+  IF ("&width"=="")||("&addr"=="")||("&value"=="")||(STRing.SCAN("&addr","0x",0.)!=0.)||(STRing.SCAN("&value","0x",0.)!=0.)||!&result
+  (
+    PRINT %ERROR "Cannot parse line: &line"
+    RETURN "FALSE()"
+  )
+
+  PRINT "Data.Set AD:&(addr) &(width) &(value)"
+  Data.Set AD:&(addr) &(width) &(value)
+
+  RETURN "TRUE()"
+)
+
+HandleClrBit: ;(line)
+(
+  PRIVATE &line &width &addr &mask &result &widthFunc
+  PARAMETERS &line
+  ; handle a line with format
+  ;  CLR_BIT <width> <addr> <value>
+  &width=STRing.SPLIT("&line"," ",1.)
+  &addr=STRing.SPLIT("&line"," ",2.)
+  &mask=STRing.SPLIT("&line"," ",3.)
+
+  GOSUB ConvertWidth "&width"
+  RETURNVALUES &result &width &widthFunc
+
+  IF ("&width"=="")||("&addr"=="")||("&mask"=="")||(STRing.SCAN("&addr","0x",0.)!=0.)||(STRing.SCAN("&mask","0x",0.)!=0.)||!&result
+  (
+    PRINT %ERROR "Cannot parse line: &line"
+    RETURN "FALSE()"
+  )
+
+  PRINT "Data.Set AD:&(addr) &(width) &widthFunc(AD:&(addr))&(~&(mask))"
+  Data.Set AD:&(addr) &(width) &widthFunc(AD:&(addr))&(~&(mask))
+
+  RETURN "TRUE()"
+)
+
+HandleCheckBitsSet: ;(line)
+(
+  PRIVATE &line &width &addr &mask &result &dummy
+  PARAMETERS &line
+  ; handle a line with format
+  ;  CHECK_BITS_SET <width> <addr> <mask>
+  &width=STRing.SPLIT("&line"," ",1.)
+  &addr=STRing.SPLIT("&line"," ",2.)
+  &mask=STRing.SPLIT("&line"," ",3.)
+
+  GOSUB ConvertWidth "&width"
+  RETURNVALUES &result &dummy &width
+  IF &result
+  (
+    GOSUB ConvertMask "&mask"
+    RETURNVALUES &result &mask
+  )
+
+  IF ("&width"=="")||("&addr"=="")||("&mask"=="")||(STRing.SCAN("&addr","0x",0.)!=0.)||!&result
+  (
+    PRINT %ERROR "Cannot parse line: &line"
+    RETURN "FALSE()"
+  )
+
+  PRINT "WAIT (&width(AD:&(addr))&(&mask))!=0x0"
+  WAIT (&width(AD:&(addr))&(&mask))!=0x0
+
+  RETURN "TRUE()"
+)
+
+HandleCheckBitsClr: ;(line)
+(
+  PRIVATE &line &width &addr &mask &result &dummy
+  PARAMETERS &line
+  ; handle a line with format
+  ;  CHECK_BITS_CLR <width> <addr> <mask>
+  &width=STRing.SPLIT("&line"," ",1.)
+  &addr=STRing.SPLIT("&line"," ",2.)
+  &mask=STRing.SPLIT("&line"," ",3.)
+
+  GOSUB ConvertWidth "&width"
+  RETURNVALUES &result &dummy &width
+  IF &result
+  (
+    GOSUB ConvertMask "&mask"
+    RETURNVALUES &result &mask
+  )
+
+  IF ("&width"=="")||("&addr"=="")||("&mask"=="")||(STRing.SCAN("&addr","0x",0.)!=0.)||!&result
+  (
+    PRINT %ERROR "Cannot parse line: &line"
+    RETURN "FALSE()"
+  )
+
+  PRINT "WAIT (&width(AD:&(addr))&(&mask))==0x0"
+  WAIT (&width(AD:&(addr))&(&mask))==0x0
+
+  RETURN "TRUE()"
+)

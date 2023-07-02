@@ -1,0 +1,69 @@
+; --------------------------------------------------------------------------------
+; @Title: Simple demo script for IMX6ULTRALITE on MCIMX6UL (RAM)
+; @Description:
+;   Setups the DRAM using the DCD interpreter mechanism (script based).
+;   Loads the sieve demo application into RAM and sets up a demo debug
+;   scenario.
+;   Use this script for getting started.
+;   Prerequisites:
+;    * Connect JTAG cable or combiprobe to J1902
+;    * Set bootmode to microSD and remove microSD
+;      -> device will stop in bootrom
+;      SW601[1..4]=0y0010 - MicroSD
+;      SW602[1..2]=0y10   - internal boot
+; @Keywords: ARM, Cortex-A7
+; @Author: AME
+; @Board: MCIMX6UL
+; @Chip: IMX6ULTRALITE
+; @Copyright: (C) 1989-2022 Lauterbach GmbH, licensed for use with TRACE32(R) only
+; --------------------------------------------------------------------------------
+; $Id: mcimx6ul_sieve_sram.cmm 18877 2022-02-02 07:04:07Z bschroefel $
+
+
+WinCLEAR
+
+; --------------------------------------------------------------------------------
+; initialize and start the debugger
+RESet
+SYStem.RESet
+SYStem.CPU IMX6ULTRALITE
+SYStem.Option ResBreak OFF
+IF VERSION.BUILD()<92177.
+(
+  ; adjust WaitReset time if a different bootmode is used
+  SYStem.Option WaitReset 10ms
+)
+ELSE
+(
+  ; poll till BootROM enables JTAG Pins
+  SYStem.Option WaitIDCODE 1.5s
+)
+SYStem.JtagClock CTCK 10MHz
+SYStem.Up
+
+; --------------------------------------------------------------------------------
+; load demo program (uses internal RAM only)
+Data.LOAD.Elf "~~~~/sieve_ram_arm_v7.elf"
+
+; --------------------------------------------------------------------------------
+; start program execution
+Go.direct main
+WAIT !STATE.RUN()
+
+; --------------------------------------------------------------------------------
+; open some windows
+WinCLEAR
+Mode.Hll
+WinPOS 0. 0.
+List.auto
+WinPOS 120. 0. 100. 8.
+Frame.view
+WinPOS 120. 14.
+Var.Watch
+Var.AddWatch %SpotLight ast flags
+WinPOS 120. 25.
+Register.view /SpotLight
+WinPOS 0. 32.
+Var.DRAW %DEFault sinewave
+
+ENDDO

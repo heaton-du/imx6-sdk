@@ -1,0 +1,71 @@
+; --------------------------------------------------------------------------------
+; @Title: MFGTool QSPI-NOR config file converter
+; @Description:
+;   This script parses a qspi-nor-<flashtype>-config file as part of
+;   Freescale/NXPs MFGTool and converts it to binary. This binary can then e.g.
+;   be copied to the QSPI flash to the QuadSPI Configuration Parameters location.
+;   Example i.MX6SoloX:
+;     DO mfgtool_qspi-nor_converter "qspi-nor-spansion-s25fl128s-config"
+;     DO ~~/demo/arm/flash/imx6sxqspi-spi64 PREPAREONLY
+;     FLASHFILE.ERASE 0x400++0x1ff
+;     FLASHFILE.LOAD.binary "qspi-nor-spansion-s25fl128s-config.bin"  0x400
+;   Usage:
+;     DO mfgtool_qspi-nor_converter "qspi-nor-<flashtype>-config"
+;     the resulting binary has the suffix ".bin"
+;   Notes:
+;     The conversion result is also available at offset zero in the AVM: memory.
+;     See Data.dump AVM:0x0
+;
+; @Author: AME
+; @Board: -
+; @Chip: IMX6* IMX7*
+; @Keywords: QSPI MFGTOOL NXP Freescale QSPI-NOR
+; @Props: NoErrors
+; @Copyright: (C) 1989-2022 Lauterbach GmbH, licensed for use with TRACE32(R) only
+; --------------------------------------------------------------------------------
+; $Id: mfgtool_qspi-nor_converter.cmm 18878 2022-02-02 07:15:39Z bschroefel $
+
+PRIVATE &params &configFile &result
+PARAMETERS &params
+
+; simple parameter handling for now
+&configFile="&params"
+&configFile=STRing.Replace("&configFile","""","",0.)
+IF !OS.FILE("&configFile")
+(
+  PRINT %ERROR "Wrong Usage!"
+  ENDDO FALSE()
+)
+
+PRIVATE &addr &origvalue &value &reminder
+&addr=0x0
+OPEN #1 "&configFile" /READ
+RePeaT
+(
+  READ #1 &origvalue %LINE &reminder
+  &value=STRing.UPpeR("&origvalue")
+  &value=STRing.TRIM("&value")
+  IF STRING.SCAN("&value","0x",0.)==0.
+  (
+    ; value is hex, nothing to do
+    Data.Set AVM:&(addr) %Long %LE &value
+    &addr=&addr+0x4
+  )
+  ELSE IF STRing.LENgth("&value")>0
+  (
+    ; interprete it as hex
+    &value="0x&(value)"
+    Data.Set AVM:&(addr) %Long %LE &value
+    &addr=&addr+0x4
+  )
+  ELSE
+  (
+    PRINT "Ignore line #"+FORMAT.DECIMAL(0.,&addr/4.+1.)+": ""&origvalue &reminder"""
+  )
+)
+WHILE !FILE.EOFLASTREAD()
+CLOSE #1
+
+Data.SAVE.Binary "&(configFile).bin" AVM:0x0--(&addr-0x1)
+
+ENDDO TRUE()

@@ -1,0 +1,105 @@
+; --------------------------------------------------------------------------------
+; @Title: Demo script for IMX6ULL on MCIMX6ULL with Offchip-Trace (RAM)
+; @Description:
+;   Loads the sieve demo application into RAM and sets up a demo debug
+;   scenario.
+;   The program flow is traced using the Offchip-Trace.
+;   Pinmuxing is handled in the script.
+;   Use this script to test the Offchip-Trace.
+;   Prerequisites:
+;    * Connect Debug Cable / CombiProbe to J1092
+;    * Connect AutoFocus Preprocessor Mictor cable
+;      to J901 via trace converter MCIMX.
+;    * Set bootmode to microSD and remove microSD
+;      -> device will stop in bootrom
+;      SW601[1..4]=0y0010 - MicroSD
+;      SW602[1..2]=0y10   - internal boot
+; @Keywords: ARM, Cortex-A7, ETM
+; @Author: AME
+; @Board: MCIMX6ULL
+; @Chip: IMX6ULL
+; @Copyright: (C) 1989-2022 Lauterbach GmbH, licensed for use with TRACE32(R) only
+; --------------------------------------------------------------------------------
+; $Id: mcimx6ull_sieve_offchip_trace_sram.cmm 18877 2022-02-02 07:04:07Z bschroefel $
+
+
+WinCLEAR
+
+; --------------------------------------------------------------------------------
+; initialize and start the debugger
+RESet
+SYStem.RESet
+SYStem.CPU IMX6ULL
+SYStem.Option ResBreak OFF
+IF VERSION.BUILD()<92177.
+(
+  ; adjust WaitReset time if a different bootmode is used
+  SYStem.Option WaitReset 10ms
+)
+ELSE
+(
+  ; poll till BootROM enables JTAG Pins
+  SYStem.Option WaitIDCODE 1.5s
+)
+SYStem.JtagClock CTCK 10MHz
+Trace.DISable
+SYStem.Up
+
+; --------------------------------------------------------------------------------
+; load demo program (uses internal RAM only)
+Data.LOAD.Elf "~~~~/sieve_ram_arm_v7.elf"
+
+; --------------------------------------------------------------------------------
+; start program execution
+Go.direct main
+WAIT !STATE.RUN()
+
+; --------------------------------------------------------------------------------
+; initialize OFFCHIP trace if Analyzer is plugged (ETM)
+IF Analyzer()
+(
+  ; set the pin-multiplexing for the off-chip trace (SW_MUX_CTL_PAD_LCD_DATAxx=ALT2)
+  Data.Set AD:0x020e0118 %Long 0x2
+  Data.Set AD:0x020e011c %Long 0x2
+  Data.Set AD:0x020e0120 %Long 0x2
+  Data.Set AD:0x020e0124 %Long 0x2
+  Data.Set AD:0x020e0128 %Long 0x2
+  Data.Set AD:0x020e012c %Long 0x2
+  Data.Set AD:0x020e0130 %Long 0x2
+  Data.Set AD:0x020e0134 %Long 0x2
+  Data.Set AD:0x020e0138 %Long 0x2
+  Data.Set AD:0x020e013c %Long 0x2
+  Data.Set AD:0x020e0140 %Long 0x2
+  Data.Set AD:0x020e0144 %Long 0x2
+  Data.Set AD:0x020e0148 %Long 0x2
+  Data.Set AD:0x020e014c %Long 0x2
+  Data.Set AD:0x020e0150 %Long 0x2
+  Data.Set AD:0x020e0154 %Long 0x2
+  Data.Set AD:0x020e0158 %Long 0x2
+  Data.Set AD:0x020e015c %Long 0x2
+
+  Trace.Method Analyzer
+  TPIU.PortSize 16
+  ETM.Trace ON
+  ETM.ON
+  ; use Autofocus based calibration
+  Analyzer.AutoFocus
+)
+
+; --------------------------------------------------------------------------------
+; open some windows
+WinCLEAR
+Mode.Hll
+WinPOS 0. 0. 116. 26.
+List.auto
+WinPOS 120. 0. 100. 8.
+Frame.view
+WinPOS 120. 14.
+Var.Watch
+Var.AddWatch %SpotLight ast flags
+WinPOS 120. 25.
+Trace.List
+WinPOS 0. 32.
+Var.DRAW %DEFault sinewave
+
+ENDDO
